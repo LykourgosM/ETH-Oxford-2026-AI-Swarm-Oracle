@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def _build_user_prompt(bundle: EvidenceBundle) -> str:
     evidence_block = "\n".join(
-        f"[Evidence {e.id}] (quality: {e.quality_score}) {e.snippet} — source: {e.url} ({e.timestamp})"
+        f"[Evidence {e.id}] {e.snippet} — source: {e.url} ({e.timestamp})"
         for e in bundle.evidence
     )
     rubric_block = ", ".join(bundle.rubric)
