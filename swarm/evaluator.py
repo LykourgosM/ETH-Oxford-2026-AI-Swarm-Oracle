@@ -27,22 +27,41 @@ def _build_user_prompt(bundle: EvidenceBundle) -> str:
     )
 
 
+def _sanitize_json(raw: str) -> str:
+    """Fix common LLM JSON errors before parsing."""
+    # Fix unquoted evidence references like [Evidence 2, Evidence 3] → [2, 3]
+    raw = re.sub(r'\bEvidence\s+(\d+)\b', r'\1', raw)
+    return raw
+
+
 def _extract_json(text: str) -> dict:
     """Extract the first JSON object from LLM output, tolerating markdown fences."""
-    # Try direct parse first
     text = text.strip()
+
+    # Try direct parse first
     if text.startswith("{"):
-        return json.loads(text)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return json.loads(_sanitize_json(text))
 
     # Try extracting from markdown code block
     match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if match:
-        return json.loads(match.group(1))
+        raw = match.group(1)
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return json.loads(_sanitize_json(raw))
 
     # Last resort: find first { ... }
     start = text.index("{")
     end = text.rindex("}") + 1
-    return json.loads(text[start:end])
+    raw = text[start:end]
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return json.loads(_sanitize_json(raw))
 
 
 async def evaluate(
