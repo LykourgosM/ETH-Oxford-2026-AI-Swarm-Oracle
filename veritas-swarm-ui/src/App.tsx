@@ -51,25 +51,19 @@ function clamp01(x: number) {
   return Math.max(0, Math.min(1, x));
 }
 
-// Auto quality scorer (demo-only). In production, the backend computes this.
-function autoQualityScore(urlOrLabel: string, snippet: string) {
-  const text = `${urlOrLabel} ${snippet}`.toLowerCase();
-  let q = 0.62;
-  if (text.includes("audit")) q += 0.18;
-  if (text.includes("dashboard") || text.includes("on-chain") || text.includes("analytics")) q += 0.12;
-  if (text.includes("report") || text.includes("data") || text.includes("metrics")) q += 0.06;
-  if (text.includes("transaction") || text.includes("addresses") || text.includes("tvl")) q += 0.05;
-  if (text.includes("forum") || text.includes("snapshot") || text.includes("thread")) q -= 0.06;
-  if (text.includes("rumor") || text.includes("anon") || text.includes("unverified")) q -= 0.12;
-  if (snippet.trim().length >= 140) q += 0.04;
-  return clamp01(q);
-}
-
 // ===== MOCK SIMULATION (no API calls, no tokens spent) =====
 const MOCK_ARCHETYPES = ["strict_empiricist", "permissive_interpreter", "skeptic", "source_quality_hawk", "contrarian"];
 
+const MOCK_EVIDENCE: EvidenceItem[] = [
+  { id: 1, url: "On-chain analytics dashboard", snippet: "Active wallet addresses interacting with Protocol Z increased 220% in the 30 days post-launch.", quality_score: 0.85, timestamp: new Date().toISOString() },
+  { id: 2, url: "DEX liquidity + price data", snippet: "Token price declined 48% from launch week highs, with liquidity incentives concentrated among early wallets.", quality_score: 0.80, timestamp: new Date().toISOString() },
+  { id: 3, url: "Audit summary", snippet: "No critical vulnerabilities, but economic design risks were flagged around emissions and yield sustainability.", quality_score: 0.70, timestamp: new Date().toISOString() },
+  { id: 4, url: "Governance forum snapshot", snippet: "Governance participation rose, but many proposals focus on incentive extensions rather than product improvements.", quality_score: 0.65, timestamp: new Date().toISOString() },
+  { id: 5, url: "Integration announcement", snippet: "Protocol Z integrated into two major DeFi aggregators, increasing composability and cross-protocol utility.", quality_score: 0.75, timestamp: new Date().toISOString() },
+  { id: 6, url: "DeFi research note", snippet: "APYs appear largely subsidy-driven; similar protocols saw user drop-offs after emissions tapered.", quality_score: 0.60, timestamp: new Date().toISOString() },
+];
+
 function mockSimulation(
-  evidence: EvidenceItem[],
   onSnapshot: (snap: ConvergencePoint) => void,
   onVerdict: (verdict: VerdictDistribution) => void,
   question: string
@@ -393,71 +387,10 @@ export default function App() {
 
   // ===== DEMO CONTENT =====
   const [question, setQuestion] = useState("Did Protocol Z's token launch create sustainable value?");
-  const [evidence, setEvidence] = useState<EvidenceItem[]>([
-    {
-      id: 1, url: "On-chain analytics dashboard",
-      snippet: "Active wallet addresses interacting with Protocol Z increased 220% in the 30 days post-launch, indicating rapid user adoption.",
-      quality_score: 0.85, timestamp: new Date().toISOString()
-    },
-    {
-      id: 2, url: "DEX liquidity + price data",
-      snippet: "Token price declined 48% from launch week highs, with liquidity incentives concentrated among early wallets.",
-      quality_score: 0.8, timestamp: new Date().toISOString()
-    },
-    {
-      id: 3, url: "Audit summary",
-      snippet: "No critical vulnerabilities, but economic design risks were flagged around emissions and yield sustainability.",
-      quality_score: 0.7, timestamp: new Date().toISOString()
-    },
-    {
-      id: 4, url: "Governance forum snapshot",
-      snippet: "Governance participation rose, but many proposals focus on incentive extensions rather than product improvements.",
-      quality_score: 0.65, timestamp: new Date().toISOString()
-    },
-    {
-      id: 5, url: "Integration announcement",
-      snippet: "Protocol Z integrated into two major DeFi aggregators, increasing composability and cross-protocol utility.",
-      quality_score: 0.75, timestamp: new Date().toISOString()
-    },
-    {
-      id: 6, url: "DeFi research note",
-      snippet: "APYs appear largely subsidy-driven; similar protocols saw user drop-offs after emissions tapered.",
-      quality_score: 0.6, timestamp: new Date().toISOString()
-    }
-  ]);
+  const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
 
-  const [newUrl, setNewUrl] = useState("");
-  const [newSnippet, setNewSnippet] = useState("");
   const [collectingEvidence, setCollectingEvidence] = useState(false);
-  const hasDraftEvidence = newUrl.trim().length > 0 || newSnippet.trim().length > 0;
-
-  const predictedQuality = useMemo(() => {
-    if (!hasDraftEvidence) return 0;
-    return autoQualityScore(newUrl.trim(), newSnippet.trim());
-  }, [newUrl, newSnippet, hasDraftEvidence]);
-
-  const predictedQualityLabel = hasDraftEvidence ? predictedQuality.toFixed(2) : "—";
-  const predictedQualityBarPct = hasDraftEvidence ? Math.round(predictedQuality * 100) : 0;
-
   const merkleRoot = useMemo(() => fakeMerkleRoot(evidence, question), [evidence, question]);
-
-  const addEvidence = () => {
-    if (!newUrl.trim() || !newSnippet.trim()) return;
-    const nextId = evidence.length ? Math.max(...evidence.map((e) => e.id)) + 1 : 1;
-    const q = autoQualityScore(newUrl.trim(), newSnippet.trim());
-    setEvidence([
-      ...evidence,
-      { id: nextId, url: newUrl.trim(), snippet: newSnippet.trim(), quality_score: q, timestamp: new Date().toISOString() }
-    ]);
-    setNewUrl("");
-    setNewSnippet("");
-
-  };
-
-  const removeEvidence = (id: number) => {
-    setEvidence(evidence.filter((e) => e.id !== id));
-
-  };
 
   // ===== MODE TOGGLE =====
   const [useMock, setUseMock] = useState(true);
@@ -515,6 +448,7 @@ export default function App() {
     setFleissKappa(0);
     setNEff(0);
     setConvergedAt(null);
+    setEvidence([]);
   }
 
   function applyVerdict(verdict: VerdictDistribution & { onchain?: { tx_hash: string; verdict_id: number; block_number: number } }) {
@@ -545,8 +479,9 @@ export default function App() {
     setRunning(true);
 
     if (useMock) {
+      setEvidence(MOCK_EVIDENCE);
       mockSimulation(
-        evidence,
+        MOCK_EVIDENCE,
         (snap) => {
           setIteration(snap.iteration);
           setPYes(snap.p_yes);
@@ -574,6 +509,7 @@ export default function App() {
       });
       if (!collectRes.ok) throw new Error(`Evidence collection failed: ${collectRes.status}`);
       bundle = await collectRes.json();
+      if (bundle.evidence) setEvidence(bundle.evidence);
       setCollectingEvidence(false);
     } catch (err) {
       console.error("Evidence collection error:", err);
@@ -629,7 +565,7 @@ export default function App() {
     }
   }
 
-  const runDisabled = evidence.length === 0 || !question.trim() || running;
+  const runDisabled = !question.trim() || running;
 
   // ===== HEATMAP (Agent Type x Vote %) =====
   const voteHeatmap = useMemo(() => {
@@ -797,37 +733,37 @@ export default function App() {
               </div>
             </div>
 
-            {/* Right: Evidence Bundle */}
+            {/* Right: Evidence Sources */}
             <div style={s.card}>
               <div style={s.cardInner}>
-                <div style={s.sectionTitle}>Evidence Bundle</div>
-
-                <div style={{ display: "grid", gap: 10, marginBottom: 14 }}>
-                  <input value={newUrl} onChange={(e) => setNewUrl(e.target.value)} placeholder="Source URL (or label)" style={s.input} />
-                  <textarea value={newSnippet} onChange={(e) => setNewSnippet(e.target.value)} placeholder="Snippet / excerpt (what the agent can cite)" data-gramm="false" data-gramm_editor="false" spellCheck={false} style={{ ...s.textarea, height: 78 }} />
-
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 12, opacity: 0.75 }}>Quality (auto)</span>
-                    <div style={{ flex: 1, height: 10, borderRadius: 999, background: "rgba(148,163,184,0.18)", overflow: "hidden", minWidth: 140, border: "1px solid rgba(255,255,255,0.08)" }} title={hasDraftEvidence ? predictedQuality.toFixed(2) : "Enter URL + snippet to estimate"}>
-                      <div style={{ width: `${predictedQualityBarPct}%`, height: "100%", background: hasDraftEvidence ? "rgba(236,72,153,0.85)" : "rgba(148,163,184,0.20)" }} />
-                    </div>
-                    <span style={{ width: 52, textAlign: "right", fontFamily: UI.mono, opacity: 0.95 }}>{predictedQualityLabel}</span>
-                    <button onClick={addEvidence} style={{ ...s.btn, ...s.btnGreen }} onMouseEnter={hoverLift} onMouseLeave={hoverDrop} title="Append evidence to the bundle">Add</button>
-                  </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                  <div style={s.sectionTitle}>Evidence Sources</div>
+                  <span style={{ fontSize: 12, opacity: 0.6, fontFamily: UI.mono }}>{evidence.length} items</span>
                 </div>
 
-                <div style={{ display: "grid", gap: 10 }}>
+                {collectingEvidence && (
+                  <div style={{ padding: 14, borderRadius: 14, background: "rgba(234,179,8,0.08)", border: "1px solid rgba(234,179,8,0.18)", marginBottom: 10, fontSize: 13, opacity: 0.85, display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={s.dot("rgba(234,179,8,0.9)")} />
+                    Searching for evidence via Tavily...
+                  </div>
+                )}
+
+                <div style={{ display: "grid", gap: 8, maxHeight: 420, overflowY: "auto" }}>
                   {evidence.map((e) => (
-                    <div key={e.id} style={{ padding: 12, borderRadius: 14, background: "rgba(2,6,23,0.40)", border: UI.borderSoft }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ fontFamily: UI.mono, fontSize: 12, padding: "4px 8px", borderRadius: 10, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.10)", color: "rgba(226,232,240,0.95)" }}>E{e.id}</span>
-                        <span style={{ fontSize: 13, opacity: 0.9, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.url}</span>
-                        <span style={{ marginLeft: "auto", fontSize: 12, opacity: 0.85, fontFamily: UI.mono }}>q={e.quality_score.toFixed(2)}</span>
-                        <button onClick={() => removeEvidence(e.id)} style={{ marginLeft: 6, border: "none", background: "transparent", color: "rgba(148,163,184,0.95)", cursor: "pointer", fontSize: 18, lineHeight: 1 }} title="Remove">×</button>
+                    <div key={e.id} style={{ padding: 10, borderRadius: 12, background: "rgba(2,6,23,0.40)", border: UI.borderSoft }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontFamily: UI.mono, fontSize: 11, padding: "3px 7px", borderRadius: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.10)", color: "rgba(226,232,240,0.95)" }}>E{e.id}</span>
+                        <span style={{ fontSize: 12, opacity: 0.85, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{e.url}</span>
+                        <span style={{ fontSize: 11, opacity: 0.7, fontFamily: UI.mono, whiteSpace: "nowrap" }}>q={e.quality_score.toFixed(2)}</span>
                       </div>
-                      <div style={{ marginTop: 8, fontSize: 13, opacity: 0.9, lineHeight: 1.4 }}>{e.snippet}</div>
+                      <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75, lineHeight: 1.35 }}>{e.snippet}</div>
                     </div>
                   ))}
+                  {evidence.length === 0 && !collectingEvidence && (
+                    <div style={{ padding: 14, opacity: 0.6, fontSize: 13 }}>
+                      {useMock ? "Mock evidence will be used." : "Evidence will be collected when you run the swarm."}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
