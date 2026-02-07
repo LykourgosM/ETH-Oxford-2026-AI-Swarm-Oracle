@@ -1,10 +1,13 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
+
+const API_BASE = "http://localhost:8000";
 
 type EvidenceItem = {
   id: number;
   url: string;
   snippet: string;
-  quality: number; // 0..1
+  quality_score: number;
+  timestamp: string;
 };
 
 type Vote = "YES" | "NO" | "NULL";
@@ -12,14 +15,11 @@ type Vote = "YES" | "NO" | "NULL";
 type Ballot = {
   iteration: number;
   archetype: string;
+  model: string;
   vote: Vote;
   supporting_evidence_ids: number[];
   refuting_evidence_ids: number[];
-  rubric_scores: {
-    evidence_quality: number;
-    claim_specificity: number;
-    source_reliability: number;
-  };
+  rubric_scores: Record<string, number>;
   reasoning: string;
 };
 
@@ -30,12 +30,90 @@ type ConvergencePoint = {
   p_null: number;
 };
 
+type VerdictDistribution = {
+  question: string;
+  p_yes: number;
+  p_no: number;
+  p_null: number;
+  num_iterations: number;
+  committee_size: number;
+  confidence_interval_95: [number, number];
+  entropy: number;
+  ballots: Ballot[];
+  convergence: ConvergencePoint[];
+};
+
 function clamp01(x: number) {
   return Math.max(0, Math.min(1, x));
 }
 
-function sigmoid(x: number) {
-  return 1 / (1 + Math.exp(-x));
+// ===== MOCK SIMULATION (no API calls, no tokens spent) =====
+const MOCK_ARCHETYPES = [
+  "strict_empiricist", "permissive_interpreter", "skeptic",
+  "source_quality_hawk", "contrarian"
+];
+
+function mockSimulation(
+  evidence: EvidenceItem[],
+  onSnapshot: (snap: ConvergencePoint) => void,
+  onVerdict: (verdict: VerdictDistribution) => void,
+  question: string
+) {
+  const NUM_ITER = 5;
+  const COMMITTEE = 3;
+  const allBallots: Ballot[] = [];
+  let iter = 0;
+
+  const interval = setInterval(() => {
+    iter++;
+    for (let k = 0; k < COMMITTEE; k++) {
+      const arch = MOCK_ARCHETYPES[Math.floor(Math.random() * MOCK_ARCHETYPES.length)];
+      const r = Math.random();
+      const vote: Vote = r < 0.55 ? "YES" : r < 0.85 ? "NO" : "NULL";
+      const ids = evidence.map(e => e.id);
+      allBallots.push({
+        iteration: iter,
+        archetype: arch,
+        model: "mock-local",
+        vote,
+        supporting_evidence_ids: ids.slice(0, 2),
+        refuting_evidence_ids: ids.slice(2, 3),
+        rubric_scores: {
+          evidence_quality: +(0.5 + Math.random() * 0.4).toFixed(2),
+          claim_specificity: +(0.4 + Math.random() * 0.4).toFixed(2),
+          source_reliability: +(0.5 + Math.random() * 0.3).toFixed(2)
+        },
+        reasoning: vote === "YES" ? "Evidence supports the claim."
+          : vote === "NO" ? "Evidence contradicts the claim."
+          : "Insufficient evidence to decide."
+      });
+    }
+
+    const total = allBallots.length;
+    const p_yes = allBallots.filter(b => b.vote === "YES").length / total;
+    const p_no = allBallots.filter(b => b.vote === "NO").length / total;
+    const p_null = allBallots.filter(b => b.vote === "NULL").length / total;
+
+    onSnapshot({ iteration: iter, p_yes, p_no, p_null });
+
+    if (iter >= NUM_ITER) {
+      clearInterval(interval);
+      const z = 1.96;
+      const se = Math.sqrt((p_yes * (1 - p_yes)) / total);
+      onVerdict({
+        question,
+        p_yes, p_no, p_null,
+        num_iterations: NUM_ITER,
+        committee_size: COMMITTEE,
+        confidence_interval_95: [clamp01(p_yes - z * se), clamp01(p_yes + z * se)],
+        entropy: 0,
+        ballots: allBallots,
+        convergence: []
+      });
+    }
+  }, 300);
+
+  return () => clearInterval(interval);
 }
 
 // Demo-only "Merkle root" (not cryptographically correct — fine for MVP)
@@ -44,68 +122,52 @@ function fakeMerkleRoot(evidence: EvidenceItem[], question: string) {
   return "0x" + base.padStart(64, "0");
 }
 
-// Lightweight keyword scoring so the run is coherent (not pure random noise)
-function evidenceSignal(evidence: EvidenceItem[]) {
-  const posWords = ["increase", "grew", "adoption", "integrat", "utility", "partnership", "compos", "growth"];
-  const negWords = ["decline", "fell", "risk", "insider", "concentrat", "subsid", "drop", "taper", "postpone"];
-
-  let score = 0;
-  for (const e of evidence) {
-    const s = e.snippet.toLowerCase();
-    const pos = posWords.some((w) => s.includes(w)) ? 1 : 0;
-    const neg = negWords.some((w) => s.includes(w)) ? 1 : 0;
-    score += (pos - neg) * e.quality; // -1..+1 weighted
-  }
-  return score;
-}
-
-function normalApproxCI(p: number, n: number) {
-  if (n <= 0) return [0, 0] as [number, number];
-  const z = 1.96;
-  const se = Math.sqrt((p * (1 - p)) / n);
-  return [clamp01(p - z * se), clamp01(p + z * se)] as [number, number];
-}
-
 export default function App() {
   // ===== DEMO CONTENT =====
-  const [question, setQuestion] = useState("Did Protocol Z’s token launch create sustainable value?");
+  const [question, setQuestion] = useState("Did Protocol Z's token launch create sustainable value?");
   const [evidence, setEvidence] = useState<EvidenceItem[]>([
     {
       id: 1,
       url: "On-chain analytics dashboard",
       snippet:
         "Active wallet addresses interacting with Protocol Z increased 220% in the 30 days post-launch, indicating rapid user adoption.",
-      quality: 0.85
+      quality_score: 0.85,
+      timestamp: new Date().toISOString()
     },
     {
       id: 2,
       url: "DEX liquidity + price data",
       snippet: "Token price declined 48% from launch week highs, with liquidity incentives concentrated among early wallets.",
-      quality: 0.8
+      quality_score: 0.8,
+      timestamp: new Date().toISOString()
     },
     {
       id: 3,
       url: "Audit summary",
       snippet: "No critical vulnerabilities, but economic design risks were flagged around emissions and yield sustainability.",
-      quality: 0.7
+      quality_score: 0.7,
+      timestamp: new Date().toISOString()
     },
     {
       id: 4,
       url: "Governance forum snapshot",
       snippet: "Governance participation rose, but many proposals focus on incentive extensions rather than product improvements.",
-      quality: 0.65
+      quality_score: 0.65,
+      timestamp: new Date().toISOString()
     },
     {
       id: 5,
       url: "Integration announcement",
       snippet: "Protocol Z integrated into two major DeFi aggregators, increasing composability and cross-protocol utility.",
-      quality: 0.75
+      quality_score: 0.75,
+      timestamp: new Date().toISOString()
     },
     {
       id: 6,
       url: "DeFi research note",
       snippet: "APYs appear largely subsidy-driven; similar protocols saw user drop-offs after emissions tapered.",
-      quality: 0.6
+      quality_score: 0.6,
+      timestamp: new Date().toISOString()
     }
   ]);
 
@@ -121,7 +183,13 @@ export default function App() {
     const nextId = evidence.length ? Math.max(...evidence.map((e) => e.id)) + 1 : 1;
     setEvidence([
       ...evidence,
-      { id: nextId, url: newUrl.trim(), snippet: newSnippet.trim(), quality: clamp01(newQuality) }
+      {
+        id: nextId,
+        url: newUrl.trim(),
+        snippet: newSnippet.trim(),
+        quality_score: clamp01(newQuality),
+        timestamp: new Date().toISOString()
+      }
     ]);
     setNewUrl("");
     setNewSnippet("");
@@ -134,22 +202,14 @@ export default function App() {
     setIsFrozen(false);
   };
 
+  // ===== MODE TOGGLE =====
+  const [useMock, setUseMock] = useState(true);
+
   // ===== RUN STATE =====
-  const NUM_ITERATIONS = 50;
-  const COMMITTEE_SIZE = 5;
-
-  const archetypes = [
-    { name: "Strict Empiricist", biasYes: +0.15, biasNull: -0.05 },
-    { name: "Skeptic", biasYes: -0.10, biasNull: +0.20 },
-    { name: "Quantifier", biasYes: +0.05, biasNull: -0.02 },
-    { name: "Contrarian", biasYes: -0.15, biasNull: -0.05 },
-    { name: "Source-Quality Hawk", biasYes: +0.05, biasNull: +0.05 },
-    { name: "Consensus-Seeker", biasYes: +0.10, biasNull: -0.03 },
-    { name: "Methodologist", biasYes: 0.0, biasNull: +0.10 }
-  ];
-
   const [running, setRunning] = useState(false);
   const [iteration, setIteration] = useState(0);
+  const [numIterations, setNumIterations] = useState(0);
+  const [committeeSize, setCommitteeSize] = useState(0);
 
   const [ballots, setBallots] = useState<Ballot[]>([]);
   const [convergence, setConvergence] = useState<ConvergencePoint[]>([]);
@@ -158,13 +218,11 @@ export default function App() {
   const [pNull, setPNull] = useState(0);
   const [ci95, setCi95] = useState<[number, number]>([0, 0]);
 
-  const intervalRef = useRef<number | null>(null);
-
   function resetRun() {
-    if (intervalRef.current) window.clearInterval(intervalRef.current);
-    intervalRef.current = null;
     setRunning(false);
     setIteration(0);
+    setNumIterations(0);
+    setCommitteeSize(0);
     setBallots([]);
     setConvergence([]);
     setPYes(0);
@@ -173,100 +231,107 @@ export default function App() {
     setCi95([0, 0]);
   }
 
-  function pickEvidenceIds(maxCount: number) {
-    const ids = evidence.map((e) => e.id);
-    const shuffled = [...ids].sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, Math.min(maxCount, shuffled.length));
-  }
-
-  function startRun() {
+  async function startRun() {
     resetRun();
     setRunning(true);
 
-    const signal = evidenceSignal(evidence); // -..+
-    const baseYes = 0.25 + 0.5 * sigmoid(signal); // ~0.25..0.75
+    if (useMock) {
+      // Local mock — no API calls, no tokens
+      mockSimulation(
+        evidence,
+        (snap) => {
+          setIteration(snap.iteration);
+          setPYes(snap.p_yes);
+          setPNo(snap.p_no);
+          setPNull(snap.p_null);
+          setConvergence((prev) => [...prev, snap]);
+        },
+        (verdict) => {
+          setPYes(verdict.p_yes);
+          setPNo(verdict.p_no);
+          setPNull(verdict.p_null);
+          setCi95(verdict.confidence_interval_95);
+          setBallots(verdict.ballots);
+          setNumIterations(verdict.num_iterations);
+          setCommitteeSize(verdict.committee_size);
+          setIteration(verdict.num_iterations);
+          setRunning(false);
+        },
+        question
+      );
+      return;
+    }
 
-    let yesCount = 0;
-    let noCount = 0;
-    let nullCount = 0;
+    // Real API call
+    const bundle = {
+      question,
+      rubric: ["evidence_quality", "claim_specificity", "source_reliability"],
+      evidence: evidence.map((e) => ({
+        id: e.id,
+        url: e.url,
+        snippet: e.snippet,
+        timestamp: e.timestamp,
+        quality_score: e.quality_score
+      })),
+      merkle_root: merkleRoot
+    };
 
-    let iter = 0;
+    try {
+      const response = await fetch(`${API_BASE}/evaluate/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bundle)
+      });
 
-    intervalRef.current = window.setInterval(() => {
-      iter += 1;
-      setIteration(iter);
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) return;
 
-      for (let k = 0; k < COMMITTEE_SIZE; k++) {
-        const a = archetypes[Math.floor(Math.random() * archetypes.length)];
+      let buffer = "";
 
-        let p_yes = clamp01(baseYes + a.biasYes);
-        let p_null = clamp01(0.15 + a.biasNull);
-        let p_no = clamp01(1 - p_yes - p_null);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-        const s = p_yes + p_no + p_null;
-        p_yes /= s;
-        p_no /= s;
-        p_null /= s;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
-        const r = Math.random();
-        let vote: Vote = "NULL";
-        if (r < p_yes) vote = "YES";
-        else if (r < p_yes + p_no) vote = "NO";
-        else vote = "NULL";
+        let eventType = "";
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            eventType = line.slice(7).trim();
+          } else if (line.startsWith("data: ")) {
+            const data = JSON.parse(line.slice(6));
 
-        if (vote === "YES") yesCount++;
-        if (vote === "NO") noCount++;
-        if (vote === "NULL") nullCount++;
-
-        const supporting = vote === "YES" ? pickEvidenceIds(2) : pickEvidenceIds(1);
-        const refuting = vote === "NO" ? pickEvidenceIds(2) : pickEvidenceIds(1);
-
-        const avgQ = evidence.length ? evidence.reduce((acc, e) => acc + e.quality, 0) / evidence.length : 0.7;
-
-        const ballot: Ballot = {
-          iteration: iter,
-          archetype: a.name,
-          vote,
-          supporting_evidence_ids: supporting,
-          refuting_evidence_ids: refuting,
-          rubric_scores: {
-            evidence_quality: clamp01(avgQ + (Math.random() * 0.2 - 0.1)),
-            claim_specificity: clamp01(0.6 + (Math.random() * 0.25 - 0.12)),
-            source_reliability: clamp01(avgQ + (Math.random() * 0.2 - 0.1))
-          },
-          reasoning:
-            vote === "NULL"
-              ? "Evidence is mixed; insufficient to resolve confidently."
-              : vote === "YES"
-              ? "Weighted evidence suggests adoption and utility despite sustainability risks."
-              : "Downside indicators and incentive sustainability concerns dominate."
-        };
-
-        setBallots((prev) => [...prev, ballot]);
+            if (eventType === "snapshot") {
+              const snap = data as ConvergencePoint;
+              setIteration(snap.iteration);
+              setPYes(snap.p_yes);
+              setPNo(snap.p_no);
+              setPNull(snap.p_null);
+              setConvergence((prev) => [...prev, snap]);
+            } else if (eventType === "verdict") {
+              const verdict = data as VerdictDistribution;
+              setPYes(verdict.p_yes);
+              setPNo(verdict.p_no);
+              setPNull(verdict.p_null);
+              setCi95(verdict.confidence_interval_95);
+              setBallots(verdict.ballots);
+              setNumIterations(verdict.num_iterations);
+              setCommitteeSize(verdict.committee_size);
+              setIteration(verdict.num_iterations);
+            }
+          }
+        }
       }
-
-      const total = yesCount + noCount + nullCount;
-      const curYes = total ? yesCount / total : 0;
-      const curNo = total ? noCount / total : 0;
-      const curNull = total ? nullCount / total : 0;
-
-      setPYes(curYes);
-      setPNo(curNo);
-      setPNull(curNull);
-
-      setConvergence((prev) => [...prev, { iteration: iter, p_yes: curYes, p_no: curNo, p_null: curNull }]);
-      setCi95(normalApproxCI(curYes, total));
-
-      if (iter >= NUM_ITERATIONS) {
-        if (intervalRef.current) window.clearInterval(intervalRef.current);
-        intervalRef.current = null;
-        setRunning(false);
-      }
-    }, 220);
+    } catch (err) {
+      console.error("Swarm API error:", err);
+    } finally {
+      setRunning(false);
+    }
   }
 
-  // IMPORTANT: Run is clickable even if not frozen (for MVP).
-  // Freeze is still shown as a "verifiability" story element.
   const runDisabled = evidence.length === 0 || !question.trim() || running;
 
   return (
@@ -345,6 +410,51 @@ export default function App() {
             </button>
           </div>
 
+          <div
+            style={{
+              marginTop: 14,
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "8px 12px",
+              borderRadius: 10,
+              background: "rgba(148,163,184,0.08)",
+              border: "1px solid rgba(255,255,255,0.08)"
+            }}
+          >
+            <span style={{ fontSize: 13, opacity: 0.8 }}>Mode:</span>
+            <button
+              onClick={() => setUseMock(true)}
+              style={{
+                padding: "5px 10px",
+                borderRadius: 8,
+                border: "1px solid rgba(255,255,255,0.12)",
+                background: useMock ? "rgba(234,179,8,0.25)" : "transparent",
+                color: useMock ? "#fbbf24" : "#94a3b8",
+                cursor: "pointer",
+                fontWeight: useMock ? 700 : 400,
+                fontSize: 13
+              }}
+            >
+              Mock (free)
+            </button>
+            <button
+              onClick={() => setUseMock(false)}
+              style={{
+                padding: "5px 10px",
+                borderRadius: 8,
+                border: "1px solid rgba(255,255,255,0.12)",
+                background: !useMock ? "rgba(34,197,94,0.25)" : "transparent",
+                color: !useMock ? "#34d399" : "#94a3b8",
+                cursor: "pointer",
+                fontWeight: !useMock ? 700 : 400,
+                fontSize: 13
+              }}
+            >
+              Live API
+            </button>
+          </div>
+
           <button
             disabled={runDisabled}
             onClick={startRun}
@@ -361,7 +471,7 @@ export default function App() {
               opacity: runDisabled ? 0.6 : 1
             }}
           >
-            Run Monte Carlo Swarm
+            {running ? "Running Swarm..." : "Run Monte Carlo Swarm"}
           </button>
 
           <button
@@ -494,7 +604,7 @@ export default function App() {
                   >
                     {e.url}
                   </span>
-                  <span style={{ marginLeft: "auto", fontSize: 12, opacity: 0.8 }}>q={e.quality.toFixed(2)}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 12, opacity: 0.8 }}>q={e.quality_score.toFixed(2)}</span>
                   <button
                     onClick={() => removeEvidence(e.id)}
                     style={{ marginLeft: 6, border: "none", background: "transparent", color: "#94a3b8", cursor: "pointer", fontSize: 16 }}
@@ -523,7 +633,7 @@ export default function App() {
         <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
           <h2 style={{ margin: 0 }}>Live Resolution</h2>
           <span style={{ opacity: 0.75 }}>
-            Iteration {iteration}/{NUM_ITERATIONS} • Committee size {COMMITTEE_SIZE}
+            Iteration {iteration}{numIterations > 0 ? `/${numIterations}` : ""}{committeeSize > 0 ? ` • Committee size ${committeeSize}` : ""}
           </span>
           <span style={{ marginLeft: "auto", opacity: 0.75 }}>
             {running ? "Running…" : iteration > 0 ? "Complete" : "Idle"}
@@ -552,14 +662,13 @@ export default function App() {
           <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>
             [{(ci95[0] * 100).toFixed(1)}%, {(ci95[1] * 100).toFixed(1)}%]
           </span>
-          <span style={{ marginLeft: 10, opacity: 0.7 }}>(normal approximation; demo)</span>
         </div>
 
         {/* Convergence mini-strip */}
         <div style={{ marginTop: 14 }}>
           <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 6 }}>Convergence (P(YES) over iterations)</div>
           <div style={{ display: "flex", gap: 2, height: 36, alignItems: "flex-end" }}>
-            {convergence.slice(-60).map((pt) => (
+            {convergence.map((pt) => (
               <div
                 key={pt.iteration}
                 title={`iter ${pt.iteration}: ${(pt.p_yes * 100).toFixed(1)}%`}
@@ -585,7 +694,7 @@ export default function App() {
               .slice(0, 80)
               .map((b, idx) => (
                 <div
-                  key={`${b.iteration}-${idx}`}
+                  key={`${b.iteration}-${b.archetype}-${idx}`}
                   style={{
                     padding: "10px 12px",
                     borderBottom: "1px solid rgba(255,255,255,0.06)",
