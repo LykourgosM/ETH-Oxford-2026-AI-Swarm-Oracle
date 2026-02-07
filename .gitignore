@@ -1,0 +1,4 @@
+.env
+verdict.json
+__pycache__/
+*.pyc

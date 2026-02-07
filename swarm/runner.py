@@ -44,7 +44,6 @@ async def run_swarm(
         ]
         results = await asyncio.gather(*tasks)
 
-        # Collect successful ballots
         for ballot in results:
             if ballot is not None:
                 all_ballots.append(ballot)

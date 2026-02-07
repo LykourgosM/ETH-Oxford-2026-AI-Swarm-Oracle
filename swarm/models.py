@@ -1,13 +1,15 @@
 from __future__ import annotations
 
-import asyncio
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-import google.genai as genai
+import openai
+from dotenv import load_dotenv
 
 from swarm.config import MODEL, TEMPERATURE
+
+load_dotenv()
 
 
 @dataclass
@@ -27,33 +29,31 @@ class LLMProvider(ABC):
         ...
 
 
-class GeminiProvider(LLMProvider):
+class OpenAIProvider(LLMProvider):
     def __init__(self, model: str | None = None):
         self._model = model or MODEL
-        self._client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+        self._client = openai.AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
     @property
     def model_id(self) -> str:
         return self._model
 
     async def complete(self, system: str, user: str, temperature: float = TEMPERATURE) -> LLMResponse:
-        resp = await asyncio.to_thread(
-            self._client.models.generate_content,
+        resp = await self._client.chat.completions.create(
             model=self._model,
-            contents=user,
-            config=genai.types.GenerateContentConfig(
-                system_instruction=system,
-                temperature=temperature,
-                max_output_tokens=1024,
-            ),
+            temperature=temperature,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
         )
-        return LLMResponse(content=resp.text, model=self._model)
+        return LLMResponse(content=resp.choices[0].message.content, model=self._model)
 
 
 # ── Model pool ──────────────────────────────────────────────────────
 
 def get_available_providers() -> list[LLMProvider]:
     """Return providers for which API keys are configured."""
-    if not os.environ.get("GEMINI_API_KEY"):
-        raise RuntimeError("GEMINI_API_KEY not set. Get one free at https://aistudio.google.com/apikey")
-    return [GeminiProvider()]
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise RuntimeError("OPENAI_API_KEY not set.")
+    return [OpenAIProvider()]

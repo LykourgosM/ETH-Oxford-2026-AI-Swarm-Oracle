@@ -1,4 +1,4 @@
 NUM_ITERATIONS = 5
 COMMITTEE_SIZE = 3
 TEMPERATURE = 0.8
-MODEL = "gemini-2.0-flash"
+MODEL = "gpt-4o-mini"
