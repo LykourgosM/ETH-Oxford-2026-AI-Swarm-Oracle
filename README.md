@@ -101,3 +101,46 @@ For each iteration:
     "criterion_2": 0.4
   }
 }
+```
+
+---
+
+## Prediction Market Integration
+
+Veritas Swarm is designed to serve as the **resolution layer for on-chain prediction markets**.
+
+A prediction market contract poses a subjective question (e.g. *"Did Project X deliver on its roadmap promises?"*). Instead of relying on a single oracle or a DAO vote, the market delegates resolution to Veritas Swarm, which returns a **verdict distribution** — P(YES), P(NO), P(NULL) — along with uncertainty metrics.
+
+**Settlement flow:**
+1. Market contract submits a question + resolution deadline to the oracle
+2. Evidence Collector gathers and freezes an evidence bundle (Merkle root posted on-chain)
+3. Monte Carlo committee sampling produces a verdict distribution
+4. The distribution is posted on-chain; the market settles proportionally or by majority threshold
+
+This gives prediction markets **calibrated, auditable resolution** with explicit uncertainty — rather than a single binary answer from an opaque source.
+
+---
+
+## Extensions
+
+### 1. Participant-Submitted Evidence
+
+As an extension, prediction market participants can **submit additional evidence** to the swarm before resolution.
+
+- Participants who hold YES or NO positions can submit URLs, documents, or data that support their side
+- Submitted evidence is hashed and appended to the evidence bundle (new Merkle root computed)
+- The swarm re-evaluates with the expanded evidence set, and the verdict distribution shifts accordingly
+
+This creates a **skin-in-the-game information market**: participants are economically incentivised to surface the best possible evidence, because better evidence shifts the distribution in their favour. The result is a resolution process that actively solicits adversarial, high-quality information rather than relying solely on automated collection.
+
+### 2. Multi-Model Heterogeneity
+
+To strengthen the independence of evaluator archetypes, the swarm can sample across **different underlying foundation models** rather than prompting a single model with different personas.
+
+For example, a single committee might include:
+- a Claude-based strict empiricist
+- a GPT-based contrarian
+- a Llama-based skeptic
+- a Gemini-based quantifier
+
+This provides **true model diversity** — different training data, different biases, different failure modes — making the committee's aggregate judgement more robust than any prompt-engineering-only approach. It also mitigates the risk of systematic bias from a single model provider.
