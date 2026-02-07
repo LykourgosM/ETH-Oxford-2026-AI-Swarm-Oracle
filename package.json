@@ -1,0 +1,26 @@
+{
+  "name": "eth-oxford-2026-ai-swarm-oracle",
+  "version": "1.0.0",
+  "description": "Monte-Carlo AI Swarm DeFi Oracle",
+  "main": "hardhat.config.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LykourgosM/ETH-Oxford-2026-AI-Swarm-Oracle.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/LykourgosM/ETH-Oxford-2026-AI-Swarm-Oracle/issues"
+  },
+  "homepage": "https://github.com/LykourgosM/ETH-Oxford-2026-AI-Swarm-Oracle#readme",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "dotenv": "^17.2.4",
+    "hardhat": "^3.1.7"
+  }
+}

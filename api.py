@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +15,8 @@ from evidence.pipeline import build_evidence_bundle
 from swarm.mock_evidence import MOCK_BUNDLES
 from swarm.runner import run_swarm, stream_swarm
 from swarm.schemas import EvidenceBundle, VerdictDistribution
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Veritas Swarm API")
 
@@ -37,7 +41,20 @@ async def evaluate_stream(bundle: EvidenceBundle) -> StreamingResponse:
     async def event_generator():
         async for item in stream_swarm(bundle):
             if isinstance(item, VerdictDistribution):
-                yield f"event: verdict\ndata: {json.dumps(item.model_dump())}\n\n"
+                # Post on-chain if configured
+                onchain_result = None
+                if os.environ.get("CONTRACT_ADDRESS"):
+                    try:
+                        from swarm.onchain import post_verdict
+                        onchain_result = post_verdict(bundle.question, bundle.merkle_root, item)
+                    except Exception:
+                        logger.exception("Failed to post verdict on-chain")
+
+                verdict_data = item.model_dump()
+                if onchain_result:
+                    verdict_data["onchain"] = onchain_result
+
+                yield f"event: verdict\ndata: {json.dumps(verdict_data)}\n\n"
             else:
                 yield f"event: snapshot\ndata: {json.dumps(item.model_dump())}\n\n"
 
@@ -58,3 +75,14 @@ class QuestionRequest(BaseModel):
 async def collect_evidence(req: QuestionRequest) -> EvidenceBundle:
     """Run the evidence pipeline: question → search → score → hash → EvidenceBundle."""
     return await build_evidence_bundle(req.question)
+
+
+@app.get("/verdicts")
+async def get_verdicts() -> list[dict]:
+    """Return all past on-chain verdicts by reading contract events."""
+    try:
+        from swarm.onchain import get_all_verdicts
+        return get_all_verdicts()
+    except Exception:
+        logger.exception("Failed to read on-chain verdicts")
+        return []

@@ -478,6 +478,29 @@ export default function App() {
   const [fleissKappa, setFleissKappa] = useState(0);
   const [nEff, setNEff] = useState(0);
   const [convergedAt, setConvergedAt] = useState<number | null>(null);
+  const [txHistory, setTxHistory] = useState<{ tx_hash?: string; verdict_id: number; block_number?: number; p_yes?: number; p_no?: number; p_null?: number; timestamp: string }[]>([]);
+  const [loadingVerdicts, setLoadingVerdicts] = useState(true);
+
+  // Fetch past on-chain verdicts on mount
+  useEffect(() => {
+    fetch(`${API_BASE}/verdicts`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setTxHistory(data.map((v: any) => ({
+            ...(v.tx_hash ? { tx_hash: v.tx_hash } : {}),
+            verdict_id: v.verdict_id,
+            ...(v.block_number ? { block_number: v.block_number } : {}),
+            p_yes: v.p_yes,
+            p_no: v.p_no,
+            p_null: v.p_null,
+            timestamp: v.timestamp ? new Date(v.timestamp * 1000).toISOString() : "",
+          })));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingVerdicts(false));
+  }, []);
 
   function resetRun() {
     setRunning(false);
@@ -495,7 +518,7 @@ export default function App() {
     setConvergedAt(null);
   }
 
-  function applyVerdict(verdict: VerdictDistribution) {
+  function applyVerdict(verdict: VerdictDistribution & { onchain?: { tx_hash: string; verdict_id: number; block_number: number } }) {
     setPYes(verdict.p_yes);
     setPNo(verdict.p_no);
     setPNull(verdict.p_null);
@@ -507,6 +530,15 @@ export default function App() {
     setNumIterations(verdict.num_iterations);
     setCommitteeSize(verdict.committee_size);
     setIteration(verdict.num_iterations);
+    if (verdict.onchain) {
+      setTxHistory((prev) => [...prev, {
+        ...verdict.onchain!,
+        p_yes: verdict.p_yes,
+        p_no: verdict.p_no,
+        p_null: verdict.p_null,
+        timestamp: new Date().toISOString(),
+      }]);
+    }
   }
 
   async function startRun() {
@@ -731,6 +763,59 @@ export default function App() {
                 <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7, lineHeight: 1.35 }}>
                   Any change to question/evidence automatically unfreezes the bundle.
                 </div>
+
+                {/* On-Chain Transaction Log */}
+                {(loadingVerdicts || txHistory.length > 0) && (
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                      <span style={s.dot(loadingVerdicts ? "rgba(234,179,8,0.9)" : "rgba(34,197,94,0.95)")} />
+                      <span style={{ fontSize: 12, fontFamily: UI.mono, letterSpacing: 0.4, textTransform: "uppercase" as const, opacity: 0.82 }}>
+                        On-Chain Verdicts {loadingVerdicts ? "(loading…)" : `(${txHistory.length})`}
+                      </span>
+                    </div>
+                    <div style={{ borderRadius: 12, border: UI.borderSoft, background: "rgba(2,6,23,0.40)", overflow: "hidden", maxHeight: 220, overflowY: "auto" }}>
+                      {txHistory.slice().reverse().map((tx, idx) => (
+                        <div key={tx.tx_hash || `v-${tx.verdict_id}`} style={{ padding: "8px 12px", borderBottom: idx < txHistory.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none", fontSize: 12 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <span style={{ fontFamily: UI.mono, opacity: 0.6, minWidth: 18 }}>#{tx.verdict_id}</span>
+                            {tx.tx_hash ? (
+                              <a
+                                href={`https://sepolia.etherscan.io/tx/${tx.tx_hash}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ fontFamily: UI.mono, color: "rgba(99,162,241,0.95)", textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                                title={tx.tx_hash}
+                              >
+                                {tx.tx_hash.slice(0, 10)}…{tx.tx_hash.slice(-8)}
+                              </a>
+                            ) : (
+                              <a
+                                href="https://sepolia.etherscan.io/address/0x2519132a64D00246c2d985a6FF7402a88BC4f987"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ fontFamily: UI.mono, color: "rgba(99,162,241,0.7)", textDecoration: "none" }}
+                              >
+                                view on etherscan
+                              </a>
+                            )}
+                            {tx.block_number && (
+                              <span style={{ fontFamily: UI.mono, opacity: 0.55, marginLeft: "auto", whiteSpace: "nowrap" }}>
+                                blk {tx.block_number}
+                              </span>
+                            )}
+                          </div>
+                          {tx.p_yes != null && (
+                            <div style={{ display: "flex", gap: 10, marginTop: 4, paddingLeft: 28, opacity: 0.7, fontFamily: UI.mono }}>
+                              <span style={{ color: "rgba(34,197,94,0.9)" }}>Y:{(tx.p_yes! * 100).toFixed(0)}%</span>
+                              <span style={{ color: "rgba(239,68,68,0.9)" }}>N:{(tx.p_no! * 100).toFixed(0)}%</span>
+                              <span style={{ color: "rgba(148,163,184,0.9)" }}>∅:{(tx.p_null! * 100).toFixed(0)}%</span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

@@ -1,6 +1,7 @@
 """Evidence pipeline orchestrator — question → EvidenceBundle."""
 from __future__ import annotations
 
+import hashlib
 import logging
 
 from swarm.schemas import EvidenceBundle, EvidenceItem
@@ -37,9 +38,10 @@ async def build_evidence_bundle(question: str) -> EvidenceBundle:
         for i, item in enumerate(raw_evidence)
     ]
 
-    # 4. Merkle hash
-    hashes = [hash_evidence(e.model_dump()) for e in evidence]
-    root = merkle_root(hashes)
+    # 4. Merkle hash (question included as first leaf)
+    question_hash = hashlib.sha256(question.encode()).hexdigest()
+    evidence_hashes = [hash_evidence(e.model_dump()) for e in evidence]
+    root = merkle_root([question_hash] + evidence_hashes)
 
     logger.info(
         "Built evidence bundle: %d items, merkle_root=%s",
