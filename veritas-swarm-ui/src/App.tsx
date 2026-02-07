@@ -439,7 +439,6 @@ export default function App() {
   const predictedQualityLabel = hasDraftEvidence ? predictedQuality.toFixed(2) : "—";
   const predictedQualityBarPct = hasDraftEvidence ? Math.round(predictedQuality * 100) : 0;
 
-  const [isFrozen, setIsFrozen] = useState(false);
   const merkleRoot = useMemo(() => fakeMerkleRoot(evidence, question), [evidence, question]);
 
   const addEvidence = () => {
@@ -452,12 +451,12 @@ export default function App() {
     ]);
     setNewUrl("");
     setNewSnippet("");
-    setIsFrozen(false);
+
   };
 
   const removeEvidence = (id: number) => {
     setEvidence(evidence.filter((e) => e.id !== id));
-    setIsFrozen(false);
+
   };
 
   // ===== MODE TOGGLE =====
@@ -718,28 +717,11 @@ export default function App() {
                 <div style={s.sectionTitle}>Question</div>
                 <textarea
                   value={question}
-                  onChange={(e) => { setQuestion(e.target.value); setIsFrozen(false); }}
+                  onChange={(e) => setQuestion(e.target.value)}
                   placeholder="Enter a question for the swarm..."
                   data-gramm="false" data-gramm_editor="false" spellCheck={false}
                   style={{ ...s.textarea, width: "100%", height: 110, fontSize: 15, lineHeight: 1.35 }}
                 />
-
-                <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
-                  <span style={{
-                    ...s.badge,
-                    background: isFrozen ? "rgba(16,185,129,0.14)" : "rgba(255,255,255,0.06)",
-                    border: isFrozen ? "1px solid rgba(16,185,129,0.25)" : UI.borderSoft,
-                    color: isFrozen ? "rgba(52,211,153,0.95)" : "rgba(226,232,240,0.92)"
-                  }}>
-                    <span style={s.dot(isFrozen ? "rgba(34,197,94,0.95)" : "rgba(148,163,184,0.9)")} />
-                    {isFrozen ? "Evidence Frozen" : "Not Frozen"}
-                  </span>
-                  <div style={{ marginLeft: "auto" }}>
-                    <button onClick={() => setIsFrozen(true)} style={{ ...s.btn, background: isFrozen ? "rgba(16,185,129,0.18)" : "rgba(99,102,241,0.22)" }} onMouseEnter={hoverLift} onMouseLeave={hoverDrop}>
-                      Freeze Evidence
-                    </button>
-                  </div>
-                </div>
 
                 {/* Mode Toggle */}
                 <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 14, background: "rgba(255,255,255,0.04)", border: UI.borderSoft }}>
@@ -759,10 +741,6 @@ export default function App() {
                 <button onClick={resetRun} style={{ ...s.btn, ...s.btnMuted, width: "100%", marginTop: 10 }} onMouseEnter={hoverLift} onMouseLeave={hoverDrop}>
                   Reset Run
                 </button>
-
-                <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7, lineHeight: 1.35 }}>
-                  Any change to question/evidence automatically unfreezes the bundle.
-                </div>
 
                 {/* On-Chain Transaction Log */}
                 {(loadingVerdicts || txHistory.length > 0) && (
