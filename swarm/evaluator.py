@@ -12,17 +12,21 @@ logger = logging.getLogger(__name__)
 
 
 def _build_user_prompt(bundle: EvidenceBundle) -> str:
+    from datetime import datetime, timezone
+
     evidence_block = "\n".join(
         f"[Evidence {e.id}] {e.snippet} — source: {e.url} ({e.timestamp})"
         for e in bundle.evidence
     )
     rubric_block = ", ".join(bundle.rubric)
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     return (
+        f"TODAY'S DATE: {today}\n\n"
         f"QUESTION: {bundle.question}\n\n"
         f"EVALUATION RUBRIC: {rubric_block}\n\n"
         f"EVIDENCE BUNDLE:\n{evidence_block}\n\n"
-        "Now evaluate the question using ONLY the evidence above. "
+        "Evaluate the question using ONLY the evidence above. "
         "Respond with a single JSON object and nothing else."
     )
 
