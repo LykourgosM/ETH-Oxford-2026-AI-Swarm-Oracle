@@ -2,6 +2,7 @@
 .env
 improvements_readme.md
 readme-evidence.md
+script_readme.md
 __pycache__/
 *.pyc
 verdict.json
