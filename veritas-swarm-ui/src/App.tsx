@@ -37,8 +37,11 @@ type VerdictDistribution = {
   p_null: number;
   num_iterations: number;
   committee_size: number;
-  confidence_interval_95: [number, number];
+  converged_at_iteration: number | null;
+  credible_intervals_95: Record<string, [number, number]>;
   entropy: number;
+  fleiss_kappa: number;
+  effective_sample_size: number;
   ballots: Ballot[];
   convergence: ConvergencePoint[];
 };
@@ -105,8 +108,15 @@ function mockSimulation(
         p_yes, p_no, p_null,
         num_iterations: NUM_ITER,
         committee_size: COMMITTEE,
-        confidence_interval_95: [clamp01(p_yes - z * se), clamp01(p_yes + z * se)],
+        converged_at_iteration: null,
+        credible_intervals_95: {
+          YES: [clamp01(p_yes - z * se), clamp01(p_yes + z * se)],
+          NO: [clamp01(p_no - z * se), clamp01(p_no + z * se)],
+          NULL: [clamp01(p_null - z * se), clamp01(p_null + z * se)]
+        },
         entropy: 0,
+        fleiss_kappa: 0,
+        effective_sample_size: allBallots.length,
         ballots: allBallots,
         convergence: []
       });
@@ -216,7 +226,10 @@ export default function App() {
   const [pYes, setPYes] = useState(0);
   const [pNo, setPNo] = useState(0);
   const [pNull, setPNull] = useState(0);
-  const [ci95, setCi95] = useState<[number, number]>([0, 0]);
+  const [ci95, setCi95] = useState<Record<string, [number, number]>>({ YES: [0, 0], NO: [0, 0], NULL: [0, 0] });
+  const [fleissKappa, setFleissKappa] = useState(0);
+  const [nEff, setNEff] = useState(0);
+  const [convergedAt, setConvergedAt] = useState<number | null>(null);
 
   function resetRun() {
     setRunning(false);
@@ -228,7 +241,10 @@ export default function App() {
     setPYes(0);
     setPNo(0);
     setPNull(0);
-    setCi95([0, 0]);
+    setCi95({ YES: [0, 0], NO: [0, 0], NULL: [0, 0] });
+    setFleissKappa(0);
+    setNEff(0);
+    setConvergedAt(null);
   }
 
   async function startRun() {
@@ -250,7 +266,10 @@ export default function App() {
           setPYes(verdict.p_yes);
           setPNo(verdict.p_no);
           setPNull(verdict.p_null);
-          setCi95(verdict.confidence_interval_95);
+          setCi95(verdict.credible_intervals_95);
+          setFleissKappa(verdict.fleiss_kappa);
+          setNEff(verdict.effective_sample_size);
+          setConvergedAt(verdict.converged_at_iteration);
           setBallots(verdict.ballots);
           setNumIterations(verdict.num_iterations);
           setCommitteeSize(verdict.committee_size);
@@ -316,7 +335,10 @@ export default function App() {
               setPYes(verdict.p_yes);
               setPNo(verdict.p_no);
               setPNull(verdict.p_null);
-              setCi95(verdict.confidence_interval_95);
+              setCi95(verdict.credible_intervals_95);
+              setFleissKappa(verdict.fleiss_kappa);
+              setNEff(verdict.effective_sample_size);
+              setConvergedAt(verdict.converged_at_iteration);
               setBallots(verdict.ballots);
               setNumIterations(verdict.num_iterations);
               setCommitteeSize(verdict.committee_size);
@@ -657,11 +679,41 @@ export default function App() {
           ))}
         </div>
 
-        <div style={{ marginTop: 12, opacity: 0.8, fontSize: 13 }}>
-          95% CI for P(YES):{" "}
-          <span style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>
-            [{(ci95[0] * 100).toFixed(1)}%, {(ci95[1] * 100).toFixed(1)}%]
+        <div style={{ marginTop: 12, opacity: 0.8, fontSize: 13, display: "grid", gap: 4 }}>
+          <div>
+            95% Credible Intervals (Dirichlet posterior):{" "}
+          </div>
+          <div style={{ fontFamily: "ui-monospace, Menlo, monospace", paddingLeft: 12 }}>
+            YES: [{(ci95.YES?.[0] * 100 || 0).toFixed(1)}%, {(ci95.YES?.[1] * 100 || 0).toFixed(1)}%]
+            {" "} NO: [{(ci95.NO?.[0] * 100 || 0).toFixed(1)}%, {(ci95.NO?.[1] * 100 || 0).toFixed(1)}%]
+            {" "} NULL: [{(ci95.NULL?.[0] * 100 || 0).toFixed(1)}%, {(ci95.NULL?.[1] * 100 || 0).toFixed(1)}%]
+          </div>
+        </div>
+
+        {/* New statistics */}
+        <div style={{ marginTop: 12, display: "flex", gap: 20, fontSize: 13, opacity: 0.8 }}>
+          <span>
+            Fleiss' Kappa:{" "}
+            <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 700 }}>
+              {fleissKappa.toFixed(3)}
+            </span>
+            <span style={{ opacity: 0.7, marginLeft: 4 }}>
+              ({fleissKappa < 0.2 ? "high subjectivity" : fleissKappa < 0.6 ? "moderate agreement" : "strong agreement"})
+            </span>
           </span>
+          <span>
+            Effective N:{" "}
+            <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 700 }}>
+              {nEff.toFixed(1)}
+            </span>
+            <span style={{ opacity: 0.7 }}> / {ballots.length} ballots</span>
+          </span>
+          {convergedAt && (
+            <span>
+              Converged at iteration{" "}
+              <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 700 }}>{convergedAt}</span>
+            </span>
+          )}
         </div>
 
         {/* Convergence mini-strip */}

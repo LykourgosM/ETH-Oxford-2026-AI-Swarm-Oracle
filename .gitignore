@@ -1,5 +1,6 @@
 # Python
 .env
+improvements_readme.md
 __pycache__/
 *.pyc
 verdict.json

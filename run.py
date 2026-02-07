@@ -35,14 +35,19 @@ async def main() -> None:
     )
 
     print("\n" + "=" * 60)
-    print("VERDICT DISTRIBUTION")
+    print("VERDICT DISTRIBUTION (Dirichlet posterior)")
     print("=" * 60)
     print(f"  P(YES)  = {verdict.p_yes:.2%}")
     print(f"  P(NO)   = {verdict.p_no:.2%}")
     print(f"  P(NULL) = {verdict.p_null:.2%}")
-    print(f"  95% CI on YES: [{verdict.confidence_interval_95[0]:.2%}, {verdict.confidence_interval_95[1]:.2%}]")
+    print(f"  95% CIs:")
+    for outcome, (lo, hi) in verdict.credible_intervals_95.items():
+        print(f"    {outcome}: [{lo:.2%}, {hi:.2%}]")
     print(f"  Entropy: {verdict.entropy:.3f} bits")
-    print(f"  Total ballots: {len(verdict.ballots)}")
+    print(f"  Fleiss' Kappa: {verdict.fleiss_kappa:.3f}")
+    print(f"  Effective N: {verdict.effective_sample_size:.1f} / {len(verdict.ballots)} ballots")
+    if verdict.converged_at_iteration:
+        print(f"  Converged at iteration: {verdict.converged_at_iteration}")
     print("=" * 60)
 
     # Dump full result to file

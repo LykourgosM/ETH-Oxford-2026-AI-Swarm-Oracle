@@ -8,16 +8,50 @@ from swarm.aggregator import (
     compute_distribution,
     compute_entropy,
     convergence_snapshot,
-    wilson_confidence_interval,
+    dirichlet_posterior,
+    effective_sample_size,
+    fleiss_kappa,
+    kl_divergence,
 )
 from swarm.archetypes import ALL_ARCHETYPES, Archetype
-from swarm.config import COMMITTEE_SIZE, NUM_ITERATIONS
+from swarm.config import COMMITTEE_SIZE, CONVERGENCE_PATIENCE, CONVERGENCE_THRESHOLD, NUM_ITERATIONS
 from swarm.evaluator import evaluate
 from swarm.models import LLMProvider, get_available_providers
 from swarm.sampler import sample_committee
 from swarm.schemas import Ballot, EvidenceBundle, ConvergenceSnapshot, VerdictDistribution
 
 logger = logging.getLogger(__name__)
+
+
+def _build_verdict(
+    bundle: EvidenceBundle,
+    all_ballots: list[Ballot],
+    convergence: list[ConvergenceSnapshot],
+    num_iterations: int,
+    committee_size: int,
+    converged_at: int | None,
+) -> VerdictDistribution:
+    """Build the final VerdictDistribution from accumulated ballots."""
+    (p_yes, p_no, p_null), cis = dirichlet_posterior(all_ballots)
+    entropy = compute_entropy(p_yes, p_no, p_null)
+    kappa = fleiss_kappa(all_ballots)
+    n_eff = effective_sample_size(all_ballots)
+
+    return VerdictDistribution(
+        question=bundle.question,
+        p_yes=round(p_yes, 4),
+        p_no=round(p_no, 4),
+        p_null=round(p_null, 4),
+        num_iterations=num_iterations,
+        committee_size=committee_size,
+        converged_at_iteration=converged_at,
+        credible_intervals_95={k: (round(lo, 4), round(hi, 4)) for k, (lo, hi) in cis.items()},
+        entropy=round(entropy, 4),
+        fleiss_kappa=round(kappa, 4),
+        effective_sample_size=round(n_eff, 2),
+        ballots=all_ballots,
+        convergence=convergence,
+    )
 
 
 async def run_swarm(
@@ -33,6 +67,8 @@ async def run_swarm(
 
     all_ballots: list[Ballot] = []
     convergence: list[ConvergenceSnapshot] = []
+    converged_at: int | None = None
+    patience_count = 0
 
     for i in range(1, num_iterations + 1):
         committee = sample_committee(archetypes, providers, committee_size)
@@ -55,23 +91,24 @@ async def run_swarm(
             i, num_iterations, snapshot.p_yes, snapshot.p_no, snapshot.p_null, len(all_ballots),
         )
 
-    # Final aggregation
-    p_yes, p_no, p_null = compute_distribution(all_ballots)
-    ci = wilson_confidence_interval(p_yes, len(all_ballots))
-    entropy = compute_entropy(p_yes, p_no, p_null)
+        # #3: KL divergence early stopping
+        if len(convergence) >= 2:
+            prev = convergence[-2]
+            curr = convergence[-1]
+            kl = kl_divergence(
+                (curr.p_yes, curr.p_no, curr.p_null),
+                (prev.p_yes, prev.p_no, prev.p_null),
+            )
+            if kl < CONVERGENCE_THRESHOLD:
+                patience_count += 1
+                if patience_count >= CONVERGENCE_PATIENCE:
+                    converged_at = i
+                    logger.info("Converged at iteration %d (KL=%.6f)", i, kl)
+                    break
+            else:
+                patience_count = 0
 
-    return VerdictDistribution(
-        question=bundle.question,
-        p_yes=round(p_yes, 4),
-        p_no=round(p_no, 4),
-        p_null=round(p_null, 4),
-        num_iterations=num_iterations,
-        committee_size=committee_size,
-        confidence_interval_95=(round(ci[0], 4), round(ci[1], 4)),
-        entropy=round(entropy, 4),
-        ballots=all_ballots,
-        convergence=convergence,
-    )
+    return _build_verdict(bundle, all_ballots, convergence, num_iterations, committee_size, converged_at)
 
 
 async def stream_swarm(
@@ -87,6 +124,8 @@ async def stream_swarm(
 
     all_ballots: list[Ballot] = []
     convergence: list[ConvergenceSnapshot] = []
+    converged_at: int | None = None
+    patience_count = 0
 
     for i in range(1, num_iterations + 1):
         committee = sample_committee(archetypes, providers, committee_size)
@@ -104,19 +143,20 @@ async def stream_swarm(
         convergence.append(snapshot)
         yield snapshot
 
-    p_yes, p_no, p_null = compute_distribution(all_ballots)
-    ci = wilson_confidence_interval(p_yes, len(all_ballots))
-    entropy = compute_entropy(p_yes, p_no, p_null)
+        # #3: KL divergence early stopping
+        if len(convergence) >= 2:
+            prev = convergence[-2]
+            curr = convergence[-1]
+            kl = kl_divergence(
+                (curr.p_yes, curr.p_no, curr.p_null),
+                (prev.p_yes, prev.p_no, prev.p_null),
+            )
+            if kl < CONVERGENCE_THRESHOLD:
+                patience_count += 1
+                if patience_count >= CONVERGENCE_PATIENCE:
+                    converged_at = i
+                    break
+            else:
+                patience_count = 0
 
-    yield VerdictDistribution(
-        question=bundle.question,
-        p_yes=round(p_yes, 4),
-        p_no=round(p_no, 4),
-        p_null=round(p_null, 4),
-        num_iterations=num_iterations,
-        committee_size=committee_size,
-        confidence_interval_95=(round(ci[0], 4), round(ci[1], 4)),
-        entropy=round(entropy, 4),
-        ballots=all_ballots,
-        convergence=convergence,
-    )
+    yield _build_verdict(bundle, all_ballots, convergence, num_iterations, committee_size, converged_at)

@@ -51,12 +51,15 @@ class ConvergenceSnapshot(BaseModel):
 
 class VerdictDistribution(BaseModel):
     question: str
-    p_yes: float
-    p_no: float
-    p_null: float
+    p_yes: float                                         # posterior mean from Dirichlet
+    p_no: float                                          # posterior mean from Dirichlet
+    p_null: float                                        # posterior mean from Dirichlet
     num_iterations: int
     committee_size: int
-    confidence_interval_95: tuple[float, float]
+    converged_at_iteration: int | None                   # null if didn't converge early
+    credible_intervals_95: dict[str, tuple[float, float]]  # CIs for all 3 outcomes
     entropy: float
+    fleiss_kappa: float                                  # inter-rater reliability
+    effective_sample_size: float                         # discounted for model correlation
     ballots: list[Ballot]
     convergence: list[ConvergenceSnapshot]
