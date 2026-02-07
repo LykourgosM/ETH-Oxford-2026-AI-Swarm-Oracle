@@ -754,7 +754,6 @@ export default function App() {
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <span style={{ fontFamily: UI.mono, fontSize: 11, padding: "3px 7px", borderRadius: 8, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.10)", color: "rgba(226,232,240,0.95)" }}>E{e.id}</span>
                         <span style={{ fontSize: 12, opacity: 0.85, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{e.url}</span>
-                        <span style={{ fontSize: 11, opacity: 0.7, fontFamily: UI.mono, whiteSpace: "nowrap" }}>q={e.quality_score.toFixed(2)}</span>
                       </div>
                       <div style={{ marginTop: 6, fontSize: 12, opacity: 0.75, lineHeight: 1.35 }}>{e.snippet}</div>
                     </div>

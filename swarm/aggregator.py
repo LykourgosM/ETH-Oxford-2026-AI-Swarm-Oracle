@@ -10,23 +10,12 @@ from swarm.schemas import Ballot, ConvergenceSnapshot, Vote
 
 # ── #1: Dirichlet-Multinomial Posterior ─────────────────────────────
 
-def compute_weighted_counts(ballots: list[Ballot]) -> tuple[float, float, float]:
-    """Compute rubric-weighted vote counts (#1 + #2 combined)."""
-    alpha_yes, alpha_no, alpha_null = 0.0, 0.0, 0.0
-    for b in ballots:
-        # #2: weight by mean rubric score (default 1.0 if no scores)
-        weight = (
-            sum(b.rubric_scores.values()) / len(b.rubric_scores)
-            if b.rubric_scores
-            else 1.0
-        )
-        if b.vote == Vote.YES:
-            alpha_yes += weight
-        elif b.vote == Vote.NO:
-            alpha_no += weight
-        else:
-            alpha_null += weight
-    return alpha_yes, alpha_no, alpha_null
+def compute_vote_counts(ballots: list[Ballot]) -> tuple[float, float, float]:
+    """Count votes for each outcome (unweighted)."""
+    alpha_yes = sum(1 for b in ballots if b.vote == Vote.YES)
+    alpha_no = sum(1 for b in ballots if b.vote == Vote.NO)
+    alpha_null = sum(1 for b in ballots if b.vote == Vote.NULL)
+    return float(alpha_yes), float(alpha_no), float(alpha_null)
 
 
 def dirichlet_posterior(
@@ -40,7 +29,7 @@ def dirichlet_posterior(
         posterior_mean: (p_yes, p_no, p_null)
         credible_intervals: {"YES": (lo, hi), "NO": (lo, hi), "NULL": (lo, hi)}
     """
-    alpha_yes, alpha_no, alpha_null = compute_weighted_counts(ballots)
+    alpha_yes, alpha_no, alpha_null = compute_vote_counts(ballots)
 
     # Dirichlet prior: uniform (1, 1, 1)
     alpha = np.array([alpha_yes + 1, alpha_no + 1, alpha_null + 1])
