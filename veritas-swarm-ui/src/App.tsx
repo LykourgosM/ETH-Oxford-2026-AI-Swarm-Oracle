@@ -184,6 +184,7 @@ export default function App() {
   const [newUrl, setNewUrl] = useState("");
   const [newSnippet, setNewSnippet] = useState("");
   const [newQuality, setNewQuality] = useState(0.7);
+  const [collectingEvidence, setCollectingEvidence] = useState(false);
 
   const [isFrozen, setIsFrozen] = useState(false);
   const merkleRoot = useMemo(() => fakeMerkleRoot(evidence, question), [evidence, question]);
@@ -281,19 +282,24 @@ export default function App() {
       return;
     }
 
-    // Real API call
-    const bundle = {
-      question,
-      rubric: ["evidence_quality", "claim_specificity", "source_reliability"],
-      evidence: evidence.map((e) => ({
-        id: e.id,
-        url: e.url,
-        snippet: e.snippet,
-        timestamp: e.timestamp,
-        quality_score: e.quality_score
-      })),
-      merkle_root: merkleRoot
-    };
+    // Real API call — first collect evidence via Tavily, then run swarm
+    let bundle;
+    try {
+      setCollectingEvidence(true);
+      const collectRes = await fetch(`${API_BASE}/collect-evidence`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question })
+      });
+      if (!collectRes.ok) throw new Error(`Evidence collection failed: ${collectRes.status}`);
+      bundle = await collectRes.json();
+      setCollectingEvidence(false);
+    } catch (err) {
+      console.error("Evidence collection error:", err);
+      setCollectingEvidence(false);
+      setRunning(false);
+      return;
+    }
 
     try {
       const response = await fetch(`${API_BASE}/evaluate/stream`, {
@@ -493,7 +499,7 @@ export default function App() {
               opacity: runDisabled ? 0.6 : 1
             }}
           >
-            {running ? "Running Swarm..." : "Run Monte Carlo Swarm"}
+            {collectingEvidence ? "Collecting Evidence..." : running ? "Running Swarm..." : "Run Monte Carlo Swarm"}
           </button>
 
           <button

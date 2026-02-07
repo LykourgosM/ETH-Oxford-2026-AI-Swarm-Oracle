@@ -7,6 +7,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
+from pydantic import BaseModel
+
+from evidence.pipeline import build_evidence_bundle
 from swarm.mock_evidence import MOCK_BUNDLES
 from swarm.runner import run_swarm, stream_swarm
 from swarm.schemas import EvidenceBundle, VerdictDistribution
@@ -45,3 +48,13 @@ async def evaluate_stream(bundle: EvidenceBundle) -> StreamingResponse:
 async def get_mock_bundles() -> list[EvidenceBundle]:
     """Return mock evidence bundles for testing."""
     return MOCK_BUNDLES
+
+
+class QuestionRequest(BaseModel):
+    question: str
+
+
+@app.post("/collect-evidence", response_model=EvidenceBundle)
+async def collect_evidence(req: QuestionRequest) -> EvidenceBundle:
+    """Run the evidence pipeline: question → search → score → hash → EvidenceBundle."""
+    return await build_evidence_bundle(req.question)
