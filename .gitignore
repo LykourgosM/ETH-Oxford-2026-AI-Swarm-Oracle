@@ -3,6 +3,7 @@
 improvements_readme.md
 readme-evidence.md
 script_readme.md
+description.md
 __pycache__/
 *.pyc
 verdict.json
