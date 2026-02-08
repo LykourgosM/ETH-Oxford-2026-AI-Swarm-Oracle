@@ -4,6 +4,10 @@
 
 Veritas Swarm is a Bayesian oracle that resolves subjective, real-world questions by Monte Carlo sampling of adversarial AI agent committees over a cryptographically committed evidence bundle. The system produces a posterior probability distribution over outcomes with credible intervals, convergence diagnostics, and inter-rater reliability statistics — all posted on-chain for verifiability.
 
+## Demo
+
+<video src="demo.mp4" controls width="100%"></video>
+
 ---
 
 ## Architecture
