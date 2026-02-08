@@ -14,7 +14,7 @@ from swarm.aggregator import (
     kl_divergence,
 )
 from swarm.archetypes import ALL_ARCHETYPES, Archetype
-from swarm.config import COMMITTEE_SIZE, CONVERGENCE_PATIENCE, CONVERGENCE_THRESHOLD, NUM_ITERATIONS
+from swarm.config import COMMITTEE_SIZE, CONVERGENCE_PATIENCE, CONVERGENCE_THRESHOLD, MIN_BALLOTS_FOR_CONVERGENCE, NUM_ITERATIONS
 from swarm.evaluator import evaluate
 from swarm.models import LLMProvider, get_available_providers
 from swarm.sampler import sample_committee
@@ -91,8 +91,8 @@ async def run_swarm(
             i, num_iterations, snapshot.p_yes, snapshot.p_no, snapshot.p_null, len(all_ballots),
         )
 
-        # #3: KL divergence early stopping
-        if len(convergence) >= 2:
+        # #3: KL divergence early stopping (only after enough ballots)
+        if len(all_ballots) >= MIN_BALLOTS_FOR_CONVERGENCE and len(convergence) >= 2:
             prev = convergence[-2]
             curr = convergence[-1]
             kl = kl_divergence(
@@ -143,8 +143,8 @@ async def stream_swarm(
         convergence.append(snapshot)
         yield snapshot
 
-        # #3: KL divergence early stopping
-        if len(convergence) >= 2:
+        # #3: KL divergence early stopping (only after enough ballots)
+        if len(all_ballots) >= MIN_BALLOTS_FOR_CONVERGENCE and len(convergence) >= 2:
             prev = convergence[-2]
             curr = convergence[-1]
             kl = kl_divergence(
