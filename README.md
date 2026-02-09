@@ -6,7 +6,7 @@ Veritas Swarm is a Bayesian oracle that resolves subjective, real-world question
 
 ## Demo
 
-<video src="demo.mp4" controls width="100%"></video>
+![Veritas Swarm Demo](demo.gif)
 
 ---
 
